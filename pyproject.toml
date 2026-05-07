@@ -9,7 +9,10 @@ description = "convert from cartesian to spherical harmonic oscillator states"
 readme = "README.md"
 requires-python = ">=3.8"
 authors = [{ name = "Georgios M. Koutentakis" }]
-dependencies = ["numpy>=2.0", "mlx_create_c"]
+dependencies = ["numpy>=2.0",
+    	     "scipy",
+    	     "matplotlib",
+	     "mlx_create_c @ git+https://github.com/gkoutentakis/mlx_create_c@dev"]
 
 [project.optional-dependencies]
 test = ["pytest>=7",
