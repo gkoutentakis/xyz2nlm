@@ -1,0 +1,17 @@
+.venv/
+*~
+#*#
+.#*
+__pycache__/
+build/
+dist/
+.DS_Store
+*.egg-info
+
+# Emacs backups
+*~
+\#*\#
+.#*
+
+# undo-tree persistent history
+*.~undo-tree~

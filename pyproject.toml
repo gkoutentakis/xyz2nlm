@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools_scm>=8", "numpy>=2.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xyz2nlm"
+version = "0.0.1"
+description = "convert from cartesian to spherical harmonic oscillator states"
+readme = "README.md"
+requires-python = ">=3.8"
+authors = [{ name = "Georgios M. Koutentakis" }]
+dependencies = ["numpy>=2.0", "mlx_create_c"]
+
+[project.optional-dependencies]
+test = ["pytest>=7",
+        "pytest-benchmark"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["xyz2nlm*"]
+namespaces = false
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
+addopts = ["-ra", "--import-mode=importlib"]
