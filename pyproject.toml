@@ -12,6 +12,8 @@ authors = [{ name = "Georgios M. Koutentakis" }]
 dependencies = ["numpy>=2.0",
     	     "scipy",
     	     "matplotlib",
+	     "sympy",
+	     "gmpy2",
 	     "mlx_create_c @ git+https://github.com/gkoutentakis/mlx_create_c@dev"]
 
 [project.optional-dependencies]
