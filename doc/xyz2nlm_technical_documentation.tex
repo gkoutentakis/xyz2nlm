@@ -1,0 +1,871 @@
+
+\documentclass[11pt]{article}
+
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb,mathtools}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{listings}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue,
+  citecolor=blue
+}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  columns=fullflexible,
+  frame=single,
+  backgroundcolor=\color{gray!5}
+}
+
+\title{\texttt{xyz2nlm}: Constructive Cartesian-to-Spherical\\
+3D Harmonic-Oscillator Basis Transformation}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{Purpose}
+
+The package \texttt{xyz2nlm} constructs the spherical harmonic-oscillator basis
+\[
+    |N,L,M\rangle
+\]
+from the Cartesian harmonic-oscillator basis
+\[
+    |n_x,n_y,n_z\rangle .
+\]
+The shell quantum number is
+\[
+    N=n_x+n_y+n_z .
+\]
+In the code this same shell quantum number is stored as metadata named \texttt{n}.
+Thus, throughout this document,
+\[
+    \texttt{state.n}=N .
+\]
+
+The algorithm is constructive. It does not diagonalize angular-momentum matrices.
+Instead it performs two steps:
+
+\begin{enumerate}
+    \item construct the highest-weight states
+    \[
+        |N,L,L\rangle
+    \]
+    directly in the Cartesian basis;
+    \item obtain the remaining states
+    \[
+        |N,L,M\rangle,\qquad M<L,
+    \]
+    by repeated application of the angular-momentum lowering operator
+    \[
+        \hat L_-=\hat L_x-i\hat L_y .
+    \]
+\end{enumerate}
+
+The important implementation point is that all states live inside a fixed shell
+\(N\), whose Cartesian basis dimension is
+\[
+    d_N=\frac{(N+1)(N+2)}{2}.
+\]
+
+\section{Cartesian basis indexing}
+
+For fixed \(N\), define the set of Cartesian occupation configurations
+\[
+    \mathcal C_N
+    =
+    \left\{
+        (n_x,n_y,n_z)\in\mathbb N_0^3:
+        n_x+n_y+n_z=N
+    \right\}.
+\]
+The number of such states is \(d_N=(N+1)(N+2)/2\).
+
+The implementation uses a bosonic permanent, or stars-and-bars, indexing map
+\[
+    J_N:\mathcal C_N\to \{0,1,\dots,d_N-1\}.
+\]
+This is the index convention used by the \texttt{mlx\_create\_c} package,
+following the bosonic occupation indexing described in Ref.~\cite{arxiv09102577}.
+The inverse operation is used conceptually as
+\[
+    J_N^{-1}(j)=(n_x,n_y,n_z).
+\]
+
+A vector in the fixed-\(N\) Cartesian basis is therefore represented as
+\[
+    |\psi_N\rangle
+    =
+    \sum_{(n_x,n_y,n_z)\in\mathcal C_N}
+    \psi_{n_xn_yn_z}\,
+    |n_x,n_y,n_z\rangle ,
+\]
+or equivalently as a dense array
+\[
+    \psi[J_N(n_x,n_y,n_z)]
+    =
+    \psi_{n_xn_yn_z}.
+\]
+
+The code generally stores only nonzero components. The compressed
+representation is
+\[
+    \bigl(\texttt{non\_zero\_ind},\texttt{non\_zero\_val}\bigr),
+\]
+where
+
+\begin{itemize}
+    \item \texttt{non\_zero\_ind} is an integer \texttt{np.ndarray} containing
+    the nonzero indices \(J_N(n_x,n_y,n_z)\);
+    \item \texttt{non\_zero\_val} is a complex \texttt{np.ndarray} containing
+    the corresponding amplitudes.
+\end{itemize}
+
+Thus the compressed state means
+\[
+    |\psi_N\rangle
+    =
+    \sum_{r}
+    \texttt{non\_zero\_val}[r]\,
+    \left|
+        J_N^{-1}\bigl(\texttt{non\_zero\_ind}[r]\bigr)
+    \right\rangle .
+\]
+
+\section{State container classes}
+
+The relevant state containers are defined in
+\[
+    \texttt{xyz2nlm.custom\_dataclasses}.
+\]
+
+\subsection{\texttt{TransientState}}
+
+The class
+\[
+    \texttt{xyz2nlm.custom\_dataclasses.TransientState}
+\]
+is used for intermediate calculations. It stores
+
+\[
+    \texttt{n},\qquad
+    \texttt{non\_zero\_ind},\qquad
+    \texttt{non\_zero\_val}.
+\]
+
+The shell metadata \texttt{n} is required because the same integer index has
+meaning only after specifying the shell \(N=\texttt{n}\). The dense
+representation is recovered with
+\[
+    \texttt{state.as\_ndarray()}.
+\]
+This method creates a dense array of length
+\[
+    d_N=\frac{(N+1)(N+2)}{2}
+\]
+and fills
+\[
+    \texttt{out[state.non\_zero\_ind]}=
+    \texttt{state.non\_zero\_val}.
+\]
+
+The class implements two algebraic operations.
+
+\paragraph{Scaling.}
+For \(c\in\mathbb C\),
+\[
+    c|\psi\rangle
+\]
+is represented by leaving \texttt{non\_zero\_ind} unchanged and replacing
+\[
+    \texttt{non\_zero\_val}
+    \mapsto
+    c\,\texttt{non\_zero\_val}.
+\]
+
+\paragraph{Addition.}
+For two states in the same shell \(N\),
+\[
+    |\chi\rangle=|\psi\rangle+|\phi\rangle
+\]
+is implemented by merging the two index sets and summing amplitudes on
+indices that occur in both inputs. In formula form,
+\[
+    \chi_j=\psi_j+\phi_j,
+\]
+but the implementation performs this operation directly on the compressed
+index/value arrays.
+
+\subsection{\texttt{SphericalHOBasisState}}
+
+The class
+\[
+    \texttt{xyz2nlm.custom\_dataclasses.SphericalHOBasisState}
+\]
+stores a finalized spherical harmonic-oscillator state. It carries the same
+compressed vector data as \texttt{TransientState}, but also records
+\[
+    \texttt{n}=N,\qquad
+    \texttt{l}=L,\qquad
+    \texttt{m}=M .
+\]
+It is not intended as the main arithmetic workhorse. Its role is to associate
+a compressed Cartesian vector with the spherical-basis label
+\[
+    |N,L,M\rangle .
+\]
+It also supports extraction to a dense \texttt{np.ndarray} through
+\[
+    \texttt{state.as\_ndarray()}.
+\]
+
+\section{Highest-weight seed states}
+
+\subsection{Definition}
+
+The seed states are the highest-weight states
+\[
+    |N,L,L\rangle .
+\]
+They are constructed directly in
+\[
+    \texttt{xyz2nlm.direct\_seed\_state\_calculation.create\_seed\_state}.
+\]
+
+The construction is based on the operator identity
+\[
+    |N,L,L\rangle
+    \propto
+    \bigl(R_{1,1,1}\bigr)^L
+    \bigl(S^\dagger\bigr)^q
+    |0,0,0\rangle ,
+    \qquad
+    q=\frac{N-L}{2}.
+\]
+The two creation-only operators are
+\[
+    R_{1,1,1}
+    =
+    -\frac{\ell}{2}
+    \left(a_x^\dagger+i a_y^\dagger\right),
+\]
+and
+\[
+    S^\dagger
+    =
+    a_x^{\dagger 2}
+    +
+    a_y^{\dagger 2}
+    +
+    a_z^{\dagger 2}.
+\]
+Because both are polynomials only in creation operators, all factors commute.
+Therefore the expansion into Cartesian number states can be computed
+combinatorially.
+
+The implementation does not literally apply these operators. It evaluates
+the closed-form Cartesian coefficients
+\[
+    |N,L,L\rangle
+    =
+    \sum_{n_x+n_y+n_z=N}
+    C^{(N,L)}_{n_x,n_y,n_z}
+    |n_x,n_y,n_z\rangle .
+\]
+
+\subsection{Admissible Cartesian configurations}
+
+A Cartesian state contributes to \(|N,L,L\rangle\) only if
+
+\[
+    n_x+n_y+n_z=N,
+\]
+\[
+    n_z\ \text{is even},
+\]
+and
+\[
+    0\le n_z\le N-L .
+\]
+The parity condition
+\[
+    N-L\in 2\mathbb Z
+\]
+is also required. Equivalently,
+\[
+    q=\frac{N-L}{2}\in\mathbb N_0 .
+\]
+
+For a valid configuration define
+\[
+    s=q-\frac{n_z}{2}
+    =
+    \frac{N-L-n_z}{2}
+    =
+    \frac{n_x+n_y-L}{2}.
+\]
+
+\subsection{The integer polynomial coefficient \(S_{L,s}(n)\)}
+
+The nontrivial cancellation in the seed-state coefficient is isolated in the
+integer coefficient
+\[
+    S_{L,s}(n).
+\]
+It is defined by the generating function
+\[
+    (1+x)^L(1-x^2)^s
+    =
+    \sum_{n=0}^{L+2s}
+    S_{L,s}(n)x^n .
+\]
+Equivalently,
+\[
+    S_{L,s}(n)
+    =
+    \sum_{\alpha}
+    (-1)^\alpha
+    \binom{s}{\alpha}
+    \binom{L}{n-2\alpha},
+\]
+where the binomial coefficient is interpreted as zero when its lower
+argument is outside the allowed range.
+
+The implementation computes \(S_{L,s}(n)\) with Python's arbitrary-precision
+integers in
+\[
+    \texttt{xyz2nlm.direct\_seed\_state\_calculation.Sls}.
+\]
+It uses the recurrence
+\[
+    \boxed{
+    S_{L,s}(n)
+    =
+    \frac{L}{n}S_{L,s}(n-1)
+    -
+    \frac{L+2s-n+2}{n}S_{L,s}(n-2)
+    }
+\]
+for
+\[
+    2\le n\le L+2s,
+\]
+with initial values
+\[
+    S_{L,s}(0)=1,
+    \qquad
+    S_{L,s}(1)=L.
+\]
+For the special case \(L=s=0\), only \(S_{0,0}(0)=1\) is used.
+
+This recurrence follows from
+\[
+    G_{L,s}(x)=(1+x)^L(1-x^2)^s
+\]
+and
+\[
+    (1-x^2)G'_{L,s}(x)
+    =
+    \left[L-(L+2s)x\right]G_{L,s}(x).
+\]
+Equating coefficients gives
+\[
+    nS_{L,s}(n)
+    =
+    L S_{L,s}(n-1)
+    -
+    (L+2s-n+2)S_{L,s}(n-2).
+\]
+
+\subsection{Closed-form seed coefficient}
+
+The coefficient of
+\[
+    |n_x,n_y,n_z\rangle
+\]
+in \(|N,L,L\rangle\) is
+\[
+    \boxed{
+    C^{(N,L)}_{n_x,n_y,n_z}
+    =
+    (-1)^L i^{L-n_x}
+    S_{L,s}(n_x)
+    \binom{q}{s}
+    \sqrt{
+    2^{-L}
+    \frac{
+        (2L+1)!\,(L+q)!\,n_x!\,n_y!\,n_z!
+    }{
+        (L!)^2\,q!\,(N+L+1)!
+    }}
+    }
+\]
+where
+\[
+    q=\frac{N-L}{2},
+    \qquad
+    s=q-\frac{n_z}{2}.
+\]
+
+The code uses the equivalent phase convention
+\[
+    (-1)^L i^{L-n_x}
+    =
+    i^{3L-n_x}.
+\]
+Therefore the coefficient is evaluated in the form
+\[
+    C^{(N,L)}_{n_x,n_y,n_z}
+    =
+    \operatorname{sgn}\!\left(S_{L,s}(n_x)\right)
+    i^{3L-n_x}
+    e^\Phi ,
+\]
+where
+\[
+\begin{aligned}
+    \Phi
+    ={}&
+    \log\left|S_{L,s}(n_x)\right|
+    -\frac{L}{2}\log 2
+    \\
+    &+
+    \log\Gamma(q+1)
+    -\log\Gamma(s+1)
+    -\log\Gamma(q-s+1)
+    \\
+    &+
+    \frac{1}{2}
+    \Big[
+        \log\Gamma(2L+2)
+        +\log\Gamma(L+q+1)
+        +\log\Gamma(n_x+1)
+        +\log\Gamma(n_y+1)
+        +\log\Gamma(n_z+1)
+    \\
+    &\hspace{3.5cm}
+        -2\log\Gamma(L+1)
+        -\log\Gamma(q+1)
+        -\log\Gamma(N+L+2)
+    \Big].
+\end{aligned}
+\]
+This is implemented in
+\[
+    \texttt{xyz2nlm.direct\_seed\_state\_calculation.coefficient\_seed\_state\_expansion}.
+\]
+The logarithmic form is used to avoid overflow in factorials while still
+returning an ordinary double-precision complex coefficient.
+
+The function
+\[
+    \texttt{xyz2nlm.direct\_seed\_state\_calculation.create\_seed\_state}
+\]
+does the full job:
+\begin{enumerate}
+    \item generate all valid Cartesian configurations;
+    \item compute \(S_{L,s}(n_x)\);
+    \item compute the coefficient \(C^{(N,L)}_{n_x,n_y,n_z}\);
+    \item map configurations to indices \(J_N(n_x,n_y,n_z)\);
+    \item package the result as a
+    \texttt{xyz2nlm.custom\_dataclasses.SphericalHOBasisState}.
+\end{enumerate}
+
+\section{Angular-momentum operators in the Cartesian basis}
+
+The angular-momentum operators are implemented in
+\[
+    \texttt{xyz2nlm.create\_angular\_momentum\_matrices.CreateAngularMomentumMatrices}.
+\]
+The implementation uses units with
+\[
+    \hbar=1.
+\]
+
+The Cartesian formulas used are
+\[
+    L_x
+    =
+    -i\,a_y^\dagger a_z
+    +
+    i\,a_z^\dagger a_y,
+\]
+\[
+    L_y
+    =
+    -i\,a_z^\dagger a_x
+    +
+    i\,a_x^\dagger a_z,
+\]
+and
+\[
+    L_z
+    =
+    -i\,a_x^\dagger a_y
+    +
+    i\,a_y^\dagger a_x.
+\]
+
+Therefore
+\[
+\begin{aligned}
+    L_+
+    &=
+    L_x+iL_y \\
+    &=
+    -i\,a_y^\dagger a_z
+    +
+    i\,a_z^\dagger a_y
+    +
+    a_z^\dagger a_x
+    -
+    a_x^\dagger a_z,
+\end{aligned}
+\]
+and
+\[
+\begin{aligned}
+    L_-
+    &=
+    L_x-iL_y \\
+    &=
+    -i\,a_y^\dagger a_z
+    +
+    i\,a_z^\dagger a_y
+    -
+    a_z^\dagger a_x
+    +
+    a_x^\dagger a_z.
+\end{aligned}
+\]
+
+The method
+\[
+    \texttt{get\_ladder\_operators()}
+\]
+returns
+\[
+    (L_+,L_-),
+\]
+with \(L_-\) as the second output.
+
+\section{Sparse implementation of \(a_i^\dagger a_j\)}
+
+The angular-momentum operators are sums of terms of the form
+\[
+    c_{ij}\,a_i^\dagger a_j,
+    \qquad i,j\in\{x,y,z\}.
+\]
+The code constructs these terms without explicitly building dense matrices.
+It uses the following identity.
+
+Let
+\[
+    \mathbf k=(k_x,k_y,k_z),
+    \qquad
+    k_x+k_y+k_z=N-1.
+\]
+Then
+\[
+    a_i^\dagger a_j
+    |\mathbf k+\mathbf e_j\rangle
+    =
+    \sqrt{(k_i+1)(k_j+1)}
+    |\mathbf k+\mathbf e_i\rangle .
+\]
+Thus a term \(c_{ij}a_i^\dagger a_j\) contributes
+\[
+    H_{J_N(\mathbf k+\mathbf e_i),\,J_N(\mathbf k+\mathbf e_j)}
+    \mathrel{+}=
+    c_{ij}\sqrt{(k_i+1)(k_j+1)}.
+\]
+
+The core mapping procedure is:
+
+\begin{lstlisting}[language=Python]
+def _calculate_mapping_matrices(self):
+    self.Ns1 = mlx_create_c.create_bos_ns(self.N-1, 3)
+    self.mapmat = mlx_create_c.create_mapmat_bos(self.Ns1)
+    self.basis_size = self.mapmat[-1,-1] + 1
+
+def _calculate_linear_operator_elements(self, i, j):
+    mapmat = self.mapmat.view()
+    Ns1 = self.Ns1.view()
+
+    lhs_map = mapmat[:, i]
+    rhs_map = mapmat[:, j]
+    coefficients = np.sqrt((Ns1[:, i] + 1.) * (Ns1[:, j] + 1.))
+
+    return lhs_map, rhs_map, coefficients
+\end{lstlisting}
+
+Here:
+
+\begin{itemize}
+    \item \texttt{Ns1} stores all \((N-1)\)-shell configurations
+    \(\mathbf k\);
+    \item \texttt{mapmat[:, i]} stores
+    \[
+        J_N(\mathbf k+\mathbf e_i)
+    \]
+    for each \(\mathbf k\);
+    \item \texttt{mapmat[:, j]} stores
+    \[
+        J_N(\mathbf k+\mathbf e_j);
+    \]
+    \item the coefficient array stores
+    \[
+        \sqrt{(k_i+1)(k_j+1)}.
+    \]
+\end{itemize}
+
+The resulting operators are packaged as
+\[
+    \texttt{scipy.sparse.linalg.LinearOperator}
+\]
+instances with both \texttt{matvec} and \texttt{matmat} implemented. For an
+input vector \(\psi\), a term \(c_{ij}a_i^\dagger a_j\) acts as
+\[
+    (H\psi)_{J_N(\mathbf k+\mathbf e_i)}
+    \mathrel{+}=
+    c_{ij}\sqrt{(k_i+1)(k_j+1)}
+    \psi_{J_N(\mathbf k+\mathbf e_j)}.
+\]
+The same indexing rule is applied columnwise in \texttt{matmat}.
+
+\section{Generating \(M<L\) states}
+
+After a seed state \(|N,L,L\rangle\) is available, the remaining states in the
+same multiplet are generated by repeated application of \(L_-\).
+
+The angular-momentum normalization convention is
+\[
+    L_-|N,L,M\rangle
+    =
+    \sqrt{(L+M)(L-M+1)}
+    |N,L,M-1\rangle .
+\]
+Therefore
+\[
+    |N,L,M-1\rangle
+    =
+    \frac{
+        L_-|N,L,M\rangle
+    }{
+        \sqrt{(L+M)(L-M+1)}
+    }.
+\]
+
+This is the normalization applied in
+\[
+    \texttt{BlockLmApplication.normalize\_states\_after\_lm\_application}.
+\]
+If a matrix contains several current states as columns, the implementation
+uses \texttt{matmat} to apply \(L_-\) to all columns simultaneously, then
+divides each column by its own factor
+\[
+    \sqrt{(L+M)(L-M+1)}.
+\]
+
+\section{Block orchestration}
+
+The full basis generation is orchestrated by
+\[
+    \texttt{xyz2nlm.create\_spherical\_basis.SphericalHOBasis}.
+\]
+The user initializes
+\[
+    \texttt{SphericalHOBasis(Nmax)}
+\]
+and calls
+\[
+    \texttt{calculate\_states()}.
+\]
+
+The implementation allocates shell blocks for
+\[
+    0\le N\le N_{\max}.
+\]
+For each fixed \(N\), the allowed angular momenta are
+\[
+    L=N,N-2,N-4,\dots,
+\]
+down to \(0\) for even \(N\) and down to \(1\) for odd \(N\).
+Equivalently,
+\[
+    0\le L\le N,
+    \qquad
+    N-L\in 2\mathbb Z .
+\]
+
+The workflow is:
+
+\begin{enumerate}
+    \item Create all highest-weight seed states
+    \[
+        |N,L,L\rangle
+    \]
+    using
+    \[
+        \texttt{create\_seed\_state(N,L)}.
+    \]
+    This step is done concurrently when possible.
+
+    \item Once all seed states for a fixed shell \(N\) are available, stack
+    them as columns of a matrix
+    \[
+        B_N
+        =
+        \begin{bmatrix}
+        |N,L_1,L_1\rangle &
+        |N,L_2,L_2\rangle &
+        \cdots
+        \end{bmatrix}.
+    \]
+
+    \item Obtain \(L_-\) for the same shell with
+    \[
+        \texttt{CreateAngularMomentumMatrices(N).get\_ladder\_operators()}.
+    \]
+
+    \item Repeatedly apply \(L_-\) to the active block of columns, normalize
+    each column by
+    \[
+        \sqrt{(L+M)(L-M+1)},
+    \]
+    and store the resulting states
+    \[
+        |N,L,M-1\rangle.
+    \]
+
+    \item Drop a multiplet from the active block once its lowest state
+    \(M=-L\) has been produced.
+\end{enumerate}
+
+This blockwise construction avoids applying \(L_-\) separately to every state.
+For each shell \(N\), many states are updated simultaneously through the
+\texttt{LinearOperator.matmat} implementation.
+
+\section{Internal consistency checks}
+
+The mathematically expected checks are:
+
+\paragraph{Normalization.}
+For every produced state,
+\[
+    \langle N,L,M|N,L,M\rangle=1.
+\]
+
+\paragraph{\(L_z\) eigenvalue.}
+\[
+    L_z|N,L,M\rangle=M|N,L,M\rangle .
+\]
+
+\paragraph{Highest-weight condition.}
+For seed states,
+\[
+    L_+|N,L,L\rangle=0 .
+\]
+
+\paragraph{Casimir eigenvalue.}
+\[
+    L^2|N,L,M\rangle=L(L+1)|N,L,M\rangle .
+\]
+In code,
+\[
+    L^2=L_x^2+L_y^2+L_z^2.
+\]
+For numerical validation it is usually more stable to first check
+\(L_+\) on highest-weight states and \(L_z\) on all states, because those
+checks involve less cancellation than a direct Cartesian-basis application of
+\(L^2\).
+
+\section{Implementation summary for maintainers and LLMs}
+
+The code should be understood as follows:
+
+\begin{itemize}
+    \item The package constructs a change-of-basis matrix from Cartesian
+    harmonic-oscillator states to spherical harmonic-oscillator states.
+
+    \item The shell quantum number \(N\) is called \texttt{n} in the code.
+    A fixed-\(N\) Cartesian sector has dimension
+    \[
+        (N+1)(N+2)/2.
+    \]
+
+    \item A state is stored sparsely by \texttt{non\_zero\_ind} and
+    \texttt{non\_zero\_val}. The indices are occupation-state indices
+    \(J_N(n_x,n_y,n_z)\).
+
+    \item \texttt{TransientState} is for arithmetic: scaling and addition.
+
+    \item \texttt{SphericalHOBasisState} is for finalized basis states and
+    carries the metadata \((N,L,M)\).
+
+    \item Seed states \(|N,L,L\rangle\) are computed directly from a closed
+    formula for
+    \[
+        C^{(N,L)}_{n_x,n_y,n_z}.
+    \]
+    No numerical diagonalization is involved.
+
+    \item The integer factor \(S_{L,s}(n_x)\) is computed exactly using
+    Python integers and the recurrence
+    \[
+        S_{L,s}(n)
+        =
+        \frac{L}{n}S_{L,s}(n-1)
+        -
+        \frac{L+2s-n+2}{n}S_{L,s}(n-2).
+    \]
+
+    \item The positive factorial prefactor in the coefficient is evaluated
+    with \texttt{scipy.special.gammaln}.
+
+    \item The states with \(M<L\) are obtained by applying the sparse
+    \texttt{LinearOperator} for \(L_-\) and normalizing by
+    \[
+        \sqrt{(L+M)(L-M+1)}.
+    \]
+
+    \item The angular-momentum matrices are not formed densely. Each term
+    \(a_i^\dagger a_j\) is implemented by mapping
+    \[
+        |\mathbf k+\mathbf e_j\rangle
+        \mapsto
+        |\mathbf k+\mathbf e_i\rangle
+    \]
+    for all \((N-1)\)-particle configurations \(\mathbf k\).
+\end{itemize}
+
+\begin{thebibliography}{9}
+
+\bibitem{arxiv09102577}
+A. I. Streltsov, O. E. Alon, and L. S. Cederbaum,
+``General mapping for bosonic and fermionic operators in Fock space'',
+Phys. Rev. A \textbf{81}, 022124 (2010).
+\url{https://link.aps.org/doi/10.1103/PhysRevA.81.022124}
+
+\bibitem{xyz2nlm}
+G. M. Koutentakis,
+\texttt{xyz2nlm}: Create the spherical harmonic oscillator basis from the
+Cartesian one.
+\url{https://github.com/gkoutentakis/xyz2nlm}
+
+\bibitem{mlxcreatec}
+G. M. Koutentakis,
+\texttt{mlx\_create\_c}: Port of the MATLAB create library in C for use in
+other programming languages.
+\url{https://github.com/gkoutentakis/mlx_create_c}
+
+\end{thebibliography}
+
+\end{document}

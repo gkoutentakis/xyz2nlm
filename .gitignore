@@ -15,3 +15,70 @@ dist/
 
 # undo-tree persistent history
 *.~undo-tree~
+
+# =========================
+# LaTeX / BibTeX artifacts
+# (pdflatex -> bibtex -> pdflatex -> pdflatex)
+# =========================
+
+# Core LaTeX aux files
+*.aux
+*.log
+*.out
+*.toc
+*.lof
+*.lot
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.synctex.gz(busy)
+*.nav
+*.snm
+*.vrb
+
+# BibTeX / bibliography
+*.bbl
+*.blg
+*.bst
+*.bcf
+*.run.xml
+
+# Index / glossary / nomenclature
+*.idx
+*.ilg
+*.ind
+*.glg
+*.glo
+*.gls
+*.glsdefs
+*.ist
+*.acn
+*.acr
+*.alg
+
+# Hyperref / cross-ref / misc
+*.brf
+*.xref
+*.mw
+
+# TikZ/PGF and minted
+*.toc.bak
+*.pgf-plot.gnuplot
+*.pgf-plot.table
+_minted*/
+*.pyg
+*.minted
+
+# Beamer / presentation
+*.spl
+
+# LaTeXmk / build tooling
+latexmkrc
+*.dvi
+*.ps
+
+# Temporary / editor swap files
+*~
+*.swp
+*.swo
+*.tmp
