@@ -5,7 +5,7 @@ import gmpy2
 
 import copy
 
-from .qi_utils import ascii_radical_sum
+from .utils import ascii_radical_sum
 
 class MathDomainError(ArithmeticError):
     """Raised when an operation is not defined within the mathematical domain of
@@ -516,6 +516,12 @@ The underlying data maps this squareclass bitmask -> Gaussian rational coefficie
         result.eliminate_zero_terms()
         return result
 
+    def conj(self):
+        result = type(self)(copy=self)
+        for sqrt, values in result._storage.keys():
+            values[1] = -values[1]
+        return result
+
     def get_square(self, sqrt_ind):
         r, i, d = self.unpack_sqrt_values(sqrt_ind)
         radicand = self.order_to_radicand(sqrt_ind)
@@ -603,4 +609,3 @@ The underlying data maps this squareclass bitmask -> Gaussian rational coefficie
             terms.append((num_r, num_i, den, radicand))
 
         return ascii_radical_sum(terms)
-

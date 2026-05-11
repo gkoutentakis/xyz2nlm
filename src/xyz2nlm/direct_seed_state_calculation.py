@@ -3,9 +3,8 @@ from scipy.special import gammaln
 import math
 
 from mlx_create_c import inv_occ_mat, create_bos_ns
-from scipy.sparse import coo_array
-from ._angular_momentum_basis_tools import IntegerAngularMomentumBasis
-from .custom_dataclasses import SphericalHOBasisState
+from .custom_dataclasses import SphericalHOBasisStateNP, SphericalHOBasisStateQI
+from .qi_interface import qi, qi_binom, qi_phase_i, qi_sqrt_fraction
 
 def coefficient_seed_state_expansion(N, L, nx, ny, nz, Slog):
 
@@ -58,15 +57,56 @@ def sign_and_log(n):
 
     return +1, math.log(n)
 
-def create_seed_state(N, L):
+def coefficient_seed_state_expansion_qi(N, L, nx, ny, nz, S):
+    N = int(N)
+    L = int(L)
+    nx = int(nx)
+    ny = int(ny)
+    nz = int(nz)
+    S = int(S)
 
-    if N <= 0 or L < 0 or (N + L)%2 != 0:
+    if S == 0:
+        return qi(0)
+
+    q = (N - L) // 2
+    s = q - nz // 2
+
+    numerator = (
+        math.factorial(2 * L + 1)
+        * math.factorial(L + q)
+        * math.factorial(nx)
+        * math.factorial(ny)
+        * math.factorial(nz)
+    )
+    denominator = (
+        (2**L)
+        * (math.factorial(L) ** 2)
+        * math.factorial(q)
+        * math.factorial(N + L + 1)
+    )
+
+    sign = -1 if S < 0 else 1
+    return (
+        qi(sign)
+        * qi_phase_i(3 * L - nx)
+        * qi(abs(S))
+        * qi_binom(q, s)
+        * qi_sqrt_fraction(numerator, denominator)
+    )
+
+def validate_seed_parameters(N, L):
+    N = int(N)
+    L = int(L)
+
+    if N < 0 or L < 0 or N < L or (N + L)%2 != 0:
         raise ValueError("The parameters N={N} and L={L} should satisfy:"
-                         " N>0, L >=0 and N,L same parity")
+                         " N>=0, N>=L, L >=0 and N,L same parity")
+    return N, L
 
+
+def create_seed_configurations(N, L):
     q = (N - L)//2
 
-    # create configurations
     confs = np.empty((0, 3), dtype=np.int64)
     for nz in range(0, N-L+1, 2):
         confs_2d = create_bos_ns(N - nz, 2)
@@ -74,36 +114,53 @@ def create_seed_state(N, L):
         confs_new = np.hstack((confs_2d, pad))
         confs = np.vstack((confs, confs_new))
 
-    # integer work
+    return confs, q
+
+
+def evaluate_seed_integer_coefficients(L, q, confs):
     nx = confs[:, 0]
     nz = confs[:, 2]
     s = q - nz//2
 
-    Sl_list = [Sls(L, ess) for ess in range(q+1)]
-    list_S = [sign_and_log(Sl_list[s[i]][nx[i]]) for i in range(s.shape[0])]
-    signs, Slogs = map(np.array, zip(*list_S))
+    Sl_list = [Sls(L, ess) for ess in range(q + 1)]
+    S_values = np.asarray([Sl_list[s[i]][nx[i]] for i in range(s.shape[0])], dtype=object)
 
-    # remove zeros from arrays
-    valid = signs != 0
-    confs = confs[valid, :]
-    Slogs = Slogs[valid]
-    signs = signs[valid]
+    valid = S_values != 0
+    return confs[valid, :], S_values[valid]
+
+
+def build_coefficient_array_qi(N, L, confs, S_values):
+    coefficients = [
+        coefficient_seed_state_expansion_qi(N, L, int(nx), int(ny), int(nz), S)
+        for (nx, ny, nz), S in zip(confs, S_values)
+    ]
+    return np.asarray(coefficients, dtype=object)
+
+
+def build_coefficient_array_complex(N, L, confs, S_values):
+    if len(S_values) == 0:
+        return np.asarray([], dtype=complex)
 
     nx = confs[:, 0]
     ny = confs[:, 1]
     nz = confs[:, 2]
-
-    # coefficients
-    coefficients = signs * coefficient_seed_state_expansion(N, L, nx, ny, nz, Slogs)
-
-    # indices
-    inds = inv_occ_mat(confs)
-
-    return SphericalHOBasisState(n = N, l = L, m = L,
-                                 non_zero_ind=inds,
-                                 non_zero_val=coefficients)
+    list_S = [sign_and_log(S) for S in S_values]
+    signs, Slogs = map(np.array, zip(*list_S))
+    return signs * coefficient_seed_state_expansion(N, L, nx, ny, nz, Slogs)
 
 
+def create_seed_state(N, L, exact=True):
+    N, L = validate_seed_parameters(N, L)
+    confs, q = create_seed_configurations(N, L)
+    confs, S_values = evaluate_seed_integer_coefficients(L, q, confs)
 
+    if exact:
+        state_class = SphericalHOBasisStateQI
+        coefficients = build_coefficient_array_qi(N, L, confs, S_values)
+    else:
+        state_class = SphericalHOBasisStateNP
+        coefficients = build_coefficient_array_complex(N, L, confs, S_values)
 
-
+    return state_class(n=N, l=L, m=L,
+                       non_zero_ind=inv_occ_mat(confs),
+                       non_zero_val=coefficients)
