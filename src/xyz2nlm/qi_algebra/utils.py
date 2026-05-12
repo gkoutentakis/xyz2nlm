@@ -238,3 +238,55 @@ def ascii_radical_sum(
             output_lines.extend(line.rstrip() for line in group)
 
     return "\n".join(output_lines)
+
+def latex_radical_sum(terms):
+    if not terms:
+        return "0"
+
+    string = ""
+    for i, term in enumerate(terms):
+        p = term[0]
+        q = term[1]
+        d = term[2]
+        r = term[3]
+
+        if (p <= 0 and q <= 0):
+            string += '-'
+            p = -p
+            q = -q
+        elif i != 0:
+            string += '+'
+
+        if p != 0 and q!=0:
+            numerator = f"{p} + i {q}" if q != 1 else f"{p} + i"
+        elif p == 0:
+            numerator = f"i {q}" if q != 1 else "i"
+        elif q == 0:
+            numerator = f"{p}"
+
+        if d!=1:
+            string +=(
+              r"\frac{"
+                +numerator
+                +r"}{"   
+                +f"{d}"
+                +r"}"
+            )
+        else:
+            string += (
+                r"\left("
+                +numerator
+                +r"\right)"
+            ) if numerator != "1" else "1"
+
+        if r != 1:
+            string += (
+                r"\sqrt{"
+                +f"{r}"
+                +r"}"
+            )
+
+    return string
+            
+
+        

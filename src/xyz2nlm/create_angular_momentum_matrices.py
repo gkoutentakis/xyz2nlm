@@ -1,3 +1,5 @@
+from abc import ABC, abstractmethod
+
 import numpy as np
 import mlx_create_c
 from scipy.sparse.linalg import LinearOperator
@@ -150,97 +152,28 @@ class ExactCasimirOperator:
         return self.matvec(other)
 
 
-class CreateAngularMomentumMatrices:
-    def __init__(self, N, exact=True):
+class _AngularMomentumMatricesBase(ABC):
+
+    def __init__(self, N):
         self.N = int(N)
-        self.exact = bool(exact)
         self.basis_size = ((self.N + 1) * (self.N + 2)) // 2
         if self.N != 0:
             self._calculate_mapping_matrices()
         else:
             self.Ns1 = np.empty((0, 3), dtype=np.int64)
             self.mapmat = np.empty((0, 3), dtype=np.int64)
-        self._configure_implementation()
 
-    def _configure_implementation(self):
-        if self.exact:
-            self._get_linear_operators = self._get_linear_operators_qi
-            self._get_ladder_operators = self._get_ladder_operators_qi
-            self._get_casimir = self._get_casimir_qi
-            return
-
-        self._get_linear_operators = self._get_linear_operators_complex
-        self._get_ladder_operators = self._get_ladder_operators_complex
-        self._get_casimir = self._get_casimir_complex
-
+    @abstractmethod
     def get_linear_operators(self, operator_buffer_size=None):
-        return self._get_linear_operators(operator_buffer_size)
+        pass
 
-    def _get_linear_operators_qi(self, operator_buffer_size=None):
-        Lx = self._package_in_exact_operator("Lx", ((1, 2, -qi_i()), (2, 1, qi_i())), operator_buffer_size)
-        Ly = self._package_in_exact_operator("Ly", ((2, 0, -qi_i()), (0, 2, qi_i())), operator_buffer_size)
-        Lz = self._package_in_exact_operator("Lz", ((0, 1, -qi_i()), (1, 0, qi_i())), operator_buffer_size)
-        return Lx, Ly, Lz
-
-    def _get_linear_operators_complex(self, operator_buffer_size=None):
-        if self.N == 0:
-            zero_array = np.zeros((1,1), dtype=complex)
-            return zero_array, zero_array, zero_array
-
-        Lx = self._package_in_linear_operator_np("Lx", ((1, 2, -1j), (2, 1, 1j)), operator_buffer_size)
-        Ly = self._package_in_linear_operator_np("Ly", ((2, 0, -1j), (0, 2, 1j)), operator_buffer_size)
-        Lz = self._package_in_linear_operator_np("Lz", ((0, 1, -1j), (1, 0, 1j)), operator_buffer_size)
-        return Lx, Ly, Lz
-
+    @abstractmethod
     def get_ladder_operators(self, operator_buffer_size=None):
-        return self._get_ladder_operators(operator_buffer_size)
+        pass
 
-    def _get_ladder_operators_qi(self, operator_buffer_size=None):
-        Lp = self._package_in_exact_operator(
-            "Lp",
-            ((1, 2, -qi_i()), (2, 1, qi_i()), (2, 0, qi(1)), (0, 2, qi(-1))),
-            operator_buffer_size,
-        )
-        Lm = self._package_in_exact_operator(
-            "Lm",
-            ((1, 2, -qi_i()), (2, 1, qi_i()), (2, 0, qi(-1)), (0, 2, qi(1))),
-            operator_buffer_size,
-        )
-        return Lp, Lm
-
-    def _get_ladder_operators_complex(self, operator_buffer_size=None):
-        if self.N == 0:
-            zero_array = np.zeros((1,1), dtype=complex)
-            return zero_array, zero_array
-
-        Lp = self._package_in_linear_operator_np(
-            "Lp",
-            ((1, 2, -1j), (2, 1, 1j), (2, 0, +1), (0, 2, -1)),
-            operator_buffer_size,
-        )
-        Lm = self._package_in_linear_operator_np(
-            "Lm",
-            ((1, 2, -1j), (2, 1, 1j), (2, 0, -1), (0, 2, +1)),
-            operator_buffer_size,
-        )
-        return Lp, Lm
-
+    @abstractmethod
     def get_casimir(self):
-        return self._get_casimir()
-
-    def _get_casimir_qi(self):
-        Lx, Ly, Lz = self.get_linear_operators()
-        return ExactCasimirOperator(self.basis_size, Lx, Ly, Lz)
-
-    def _get_casimir_complex(self):
-        if self.N == 0:
-            return np.zeros((1,1), dtype=complex)
-
-        Lx, Ly, Lz = self.get_linear_operators()
-        function = lambda vec: Lx @ (Lx @ vec) + Ly @ (Ly @ vec) + Lz @ (Lz @ vec)
-        return LinearOperator((self.basis_size, self.basis_size),
-                              matvec=function,
-                              matmat=function)
+        pass
 
     def _calculate_mapping_matrices(self):
         self.Ns1 = mlx_create_c.create_bos_ns(self.N-1, 3)
@@ -374,6 +307,146 @@ class CreateAngularMomentumMatrices:
         return operator
 
 
+class AngularMomentumMatricesQI(_AngularMomentumMatricesBase):
+
+    def get_linear_operators(self, operator_buffer_size=None):
+        Lx = self._package_in_exact_operator("Lx", ((1, 2, -qi_i()), (2, 1, qi_i())), operator_buffer_size)
+        Ly = self._package_in_exact_operator("Ly", ((2, 0, -qi_i()), (0, 2, qi_i())), operator_buffer_size)
+        Lz = self._package_in_exact_operator("Lz", ((0, 1, -qi_i()), (1, 0, qi_i())), operator_buffer_size)
+        return Lx, Ly, Lz
+
+    def get_ladder_operators(self, operator_buffer_size=None):
+        Lp = self._package_in_exact_operator(
+            "Lp",
+            ((1, 2, -qi_i()), (2, 1, qi_i()), (2, 0, qi(1)), (0, 2, qi(-1))),
+            operator_buffer_size,
+        )
+        Lm = self._package_in_exact_operator(
+            "Lm",
+            ((1, 2, -qi_i()), (2, 1, qi_i()), (2, 0, qi(-1)), (0, 2, qi(1))),
+            operator_buffer_size,
+        )
+        return Lp, Lm
+
+    def get_casimir(self):
+        Lx, Ly, Lz = self.get_linear_operators()
+        return ExactCasimirOperator(self.basis_size, Lx, Ly, Lz)
+
+
+class AngularMomentumMatricesNP(_AngularMomentumMatricesBase):
+
+    def get_linear_operators(self, operator_buffer_size=None):
+        if self.N == 0:
+            zero_array = np.zeros((1,1), dtype=complex)
+            return zero_array, zero_array, zero_array
+
+        Lx = self._package_in_linear_operator_np("Lx", ((1, 2, -1j), (2, 1, 1j)), operator_buffer_size)
+        Ly = self._package_in_linear_operator_np("Ly", ((2, 0, -1j), (0, 2, 1j)), operator_buffer_size)
+        Lz = self._package_in_linear_operator_np("Lz", ((0, 1, -1j), (1, 0, 1j)), operator_buffer_size)
+        return Lx, Ly, Lz
+
+    def get_ladder_operators(self, operator_buffer_size=None):
+        if self.N == 0:
+            zero_array = np.zeros((1,1), dtype=complex)
+            return zero_array, zero_array
+
+        Lp = self._package_in_linear_operator_np(
+            "Lp",
+            ((1, 2, -1j), (2, 1, 1j), (2, 0, +1), (0, 2, -1)),
+            operator_buffer_size,
+        )
+        Lm = self._package_in_linear_operator_np(
+            "Lm",
+            ((1, 2, -1j), (2, 1, 1j), (2, 0, -1), (0, 2, +1)),
+            operator_buffer_size,
+        )
+        return Lp, Lm
+
+    def get_casimir(self):
+        if self.N == 0:
+            return np.zeros((1,1), dtype=complex)
+
+        Lx, Ly, Lz = self.get_linear_operators()
+        function = lambda vec: Lx @ (Lx @ vec) + Ly @ (Ly @ vec) + Lz @ (Lz @ vec)
+        return LinearOperator((self.basis_size, self.basis_size),
+                              matvec=function,
+                              matmat=function)
+
+
+class _BlockLmApplicationBase(ABC):
+    angular_momentum_class = None
+
+    def __init__(self, n, block_in, ls, ms):
+        self.am = self.angular_momentum_class(n)
+        _, self.Lm = self.am.get_ladder_operators(operator_buffer_size=self.am.basis_size)
+
+        self.work_array_a = block_in
+        self.work_array_b = self.am._Lm_buffer
+
+        self.states_current = self.work_array_a
+        self.states_current_using_buffer_a = True
+
+        self.block_ls = ls.copy()
+        self.block_ms = ms.copy()
+
+    def decrease_m_of_block(self):
+        self.states_current = self.Lm @ self.states_current
+        self.update_working_buffer_data()
+        self.normalize_states_after_lm_application()
+
+        self.block_ms -= 1
+
+        return self.states_current, self.block_ls, self.block_ms
+
+    def update_working_buffer_data(self):
+        if self.states_current_using_buffer_a:
+            self.am._change_buffer_of_operator("Lm", self.work_array_a)
+            self.states_current_using_buffer_a = False
+        else:
+            self.am._change_buffer_of_operator("Lm", self.work_array_b)
+            self.states_current_using_buffer_a = True
+
+    @abstractmethod
+    def normalize_states_after_lm_application(self):
+        pass
+
+    def drop_first_state_from_block(self):
+        self.states_current = self.states_current[:, 1:]
+        self.block_ls = self.block_ls[1:]
+        self.block_ms = self.block_ms[1:]
+
+
+class BlockLmApplicationQI(_BlockLmApplicationBase):
+    angular_momentum_class = AngularMomentumMatricesQI
+
+    def normalize_states_after_lm_application(self):
+        for column, (ell, emm) in enumerate(zip(self.block_ls, self.block_ms)):
+            normalization = qi_sqrt_int((ell + emm) * (ell - emm + 1))
+            self.states_current[:, column] = [
+                value / normalization for value in self.states_current[:, column]
+            ]
+
+
+class BlockLmApplicationNP(_BlockLmApplicationBase):
+    angular_momentum_class = AngularMomentumMatricesNP
+
+    def normalize_states_after_lm_application(self):
+        self.states_current /= np.sqrt(
+            (self.block_ls + self.block_ms) * (self.block_ls - self.block_ms + 1)
+        )[None, :]
+
+
+def create_angular_momentum_matrices(N, exact=True, compatible_basis=None):
+    if compatible_basis:
+        implementation = AngularMomentumMatricesQI \
+            if compatible_basis.block_application_class is BlockLmApplicationQI \
+               else AngularMomentumMatricesNP
+    else:
+        implementation = AngularMomentumMatricesQI if exact else AngularMomentumMatricesNP
+
+    return implementation(N)
+
+
 if __name__ == "__main__":
     print('''This file provides the definition of the 
-CreateAngularMomentumMatrices class and is not intended to be run as a script''')
+AngularMomentumMatrices class and is not intended to be run as a script''')

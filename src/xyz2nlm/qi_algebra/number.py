@@ -5,7 +5,7 @@ import gmpy2
 
 import copy
 
-from .utils import ascii_radical_sum
+from .utils import ascii_radical_sum, latex_radical_sum
 
 class MathDomainError(ArithmeticError):
     """Raised when an operation is not defined within the mathematical domain of
@@ -608,4 +608,8 @@ The underlying data maps this squareclass bitmask -> Gaussian rational coefficie
             radicand = self.order_to_radicand(sqrt_ind)
             terms.append((num_r, num_i, den, radicand))
 
-        return ascii_radical_sum(terms)
+        if mode == "fancy":
+            return ascii_radical_sum(terms)
+
+        if mode == "latex":
+            return latex_radical_sum(terms)

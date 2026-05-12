@@ -3,7 +3,7 @@ from scipy.special import gammaln
 import math
 
 from mlx_create_c import inv_occ_mat, create_bos_ns
-from .custom_dataclasses import SphericalHOBasisStateNP, SphericalHOBasisStateQI
+from .custom_dataclasses import SphericalHOBasisStateFactory
 from .qi_interface import qi, qi_binom, qi_phase_i, qi_sqrt_fraction
 
 def coefficient_seed_state_expansion(N, L, nx, ny, nz, Slog):
@@ -155,12 +155,10 @@ def create_seed_state(N, L, exact=True):
     confs, S_values = evaluate_seed_integer_coefficients(L, q, confs)
 
     if exact:
-        state_class = SphericalHOBasisStateQI
         coefficients = build_coefficient_array_qi(N, L, confs, S_values)
     else:
-        state_class = SphericalHOBasisStateNP
         coefficients = build_coefficient_array_complex(N, L, confs, S_values)
 
-    return state_class(n=N, l=L, m=L,
-                       non_zero_ind=inv_occ_mat(confs),
-                       non_zero_val=coefficients)
+    return SphericalHOBasisStateFactory(n=N, l=L, m=L,
+                                        non_zero_ind=inv_occ_mat(confs),
+                                        non_zero_val=coefficients)

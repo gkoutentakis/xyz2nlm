@@ -40,10 +40,10 @@ def get_expectation_value_and_variance_complex(operator, state):
     return expectation_value, variance
 
 def test_initial_state():
-    shob = xyz2nlm.SphericalHOBasis(1)
+    shob = xyz2nlm.create_spherical_ho_basis(1, calculate=False)
     stat = shob._initial_state_even_sector()
 
-    am = xyz2nlm.CreateAngularMomentumMatrices(0)
+    am = xyz2nlm.create_angular_momentum_matrices(0)
     Lx, Ly, Lz = am.get_linear_operators()
     L2 = am.get_casimir()
 
@@ -56,10 +56,10 @@ def test_initial_state():
     assert Lz_var == 0
 
 def test_initial_state_complex():
-    shob = xyz2nlm.SphericalHOBasis(1, exact=False)
+    shob = xyz2nlm.create_spherical_ho_basis(1, exact=False, calculate=False)
     stat = shob._initial_state_even_sector()
 
-    am = xyz2nlm.CreateAngularMomentumMatrices(0, exact=False)
+    am = xyz2nlm.create_angular_momentum_matrices(0, exact=False)
     _Lx, _Ly, Lz = am.get_linear_operators()
     L2 = am.get_casimir()
 
@@ -72,7 +72,7 @@ def test_initial_state_complex():
     npt.assert_allclose(Lz_var, 0, atol=1e-12)
     
 def test_s2_operator():
-    shob = xyz2nlm.SphericalHOBasis(10)
+    shob = xyz2nlm.create_spherical_ho_basis(10, calculate=False)
     stat = shob._initial_state_even_sector()
 
     for i in range(5):
@@ -82,7 +82,7 @@ def test_s2_operator():
         assert stat.l == 0
         assert stat.m == 0
 
-        am = xyz2nlm.CreateAngularMomentumMatrices(stat.n)
+        am = xyz2nlm.create_angular_momentum_matrices(stat.n)
         Lx, Ly, Lz = am.get_linear_operators()
         L2 = am.get_casimir()
 
@@ -98,7 +98,7 @@ def test_s2_operator():
         assert Lz_var == 0
 
 def test_s2_operator_complex():
-    shob = xyz2nlm.SphericalHOBasis(10, exact=False)
+    shob = xyz2nlm.create_spherical_ho_basis(10, exact=False, calculate=False)
     stat = shob._initial_state_even_sector()
 
     for i in range(5):
@@ -108,7 +108,7 @@ def test_s2_operator_complex():
         assert stat.l == 0
         assert stat.m == 0
 
-        am = xyz2nlm.CreateAngularMomentumMatrices(stat.n, exact=False)
+        am = xyz2nlm.create_angular_momentum_matrices(stat.n, exact=False)
         _Lx, _Ly, Lz = am.get_linear_operators()
         L2 = am.get_casimir()
 
@@ -123,7 +123,7 @@ def test_s2_operator_complex():
         npt.assert_allclose(Lz_var, 0, atol=1e-12)
 
 def test_r22_operator():
-    shob = xyz2nlm.SphericalHOBasis(10)
+    shob = xyz2nlm.create_spherical_ho_basis(10, calculate=False)
     stat = shob._initial_state_even_sector()
 
     for i in range(5):
@@ -133,7 +133,7 @@ def test_r22_operator():
         assert stat.l == 2 * (i + 1)
         assert stat.m == 2 * (i + 1)
 
-        am = xyz2nlm.CreateAngularMomentumMatrices(stat.n)
+        am = xyz2nlm.create_angular_momentum_matrices(stat.n)
         Lx, Ly, Lz = am.get_linear_operators()
         L2 = am.get_casimir()
         
@@ -149,7 +149,7 @@ def test_r22_operator():
         assert Lz_var == 0
 
 def test_r22_operator_complex():
-    shob = xyz2nlm.SphericalHOBasis(10, exact=False)
+    shob = xyz2nlm.create_spherical_ho_basis(10, exact=False, calculate=False)
     stat = shob._initial_state_even_sector()
 
     for i in range(5):
@@ -159,7 +159,7 @@ def test_r22_operator_complex():
         assert stat.l == 2 * (i + 1)
         assert stat.m == 2 * (i + 1)
 
-        am = xyz2nlm.CreateAngularMomentumMatrices(stat.n, exact=False)
+        am = xyz2nlm.create_angular_momentum_matrices(stat.n, exact=False)
         _Lx, _Ly, Lz = am.get_linear_operators()
         L2 = am.get_casimir()
         
@@ -174,7 +174,7 @@ def test_r22_operator_complex():
         npt.assert_allclose(Lz_var, 0, atol=1e-12)
 
 def test_Lm_operator():
-    shob = xyz2nlm.SphericalHOBasis(10)
+    shob = xyz2nlm.create_spherical_ho_basis(10, calculate=False)
     stat = shob._initial_state_even_sector()
 
     for i in range(5):
@@ -184,7 +184,7 @@ def test_Lm_operator():
         assert stat.l == 2 * (i + 1)
         assert stat.m == 2 * (i + 1)
 
-        am = xyz2nlm.CreateAngularMomentumMatrices(stat.n)
+        am = xyz2nlm.create_angular_momentum_matrices(stat.n)
         Lx, Ly, Lz = am.get_linear_operators()
         Lp, Lm = am.get_ladder_operators()
         L2 = am.get_casimir()
@@ -204,7 +204,7 @@ def test_Lm_operator():
         assert Lz_var == 0
 
 def test_Lm_operator_complex():
-    shob = xyz2nlm.SphericalHOBasis(10, exact=False)
+    shob = xyz2nlm.create_spherical_ho_basis(10, exact=False, calculate=False)
     stat = shob._initial_state_even_sector()
 
     for i in range(5):
@@ -214,7 +214,7 @@ def test_Lm_operator_complex():
         assert stat.l == 2 * (i + 1)
         assert stat.m == 2 * (i + 1)
 
-        am = xyz2nlm.CreateAngularMomentumMatrices(stat.n, exact=False)
+        am = xyz2nlm.create_angular_momentum_matrices(stat.n, exact=False)
         _Lx, _Ly, Lz = am.get_linear_operators()
         _Lp, Lm = am.get_ladder_operators()
         L2 = am.get_casimir()
@@ -242,7 +242,7 @@ def test_direct_generation(N, L):
     norm = get_norm(stat)
     assert norm == 1
 
-    am = xyz2nlm.CreateAngularMomentumMatrices(stat.n)
+    am = xyz2nlm.create_angular_momentum_matrices(stat.n)
     Lx, Ly, Lz = am.get_linear_operators()
     Lp, Lm = am.get_ladder_operators()
     L2 = am.get_casimir()
@@ -267,7 +267,7 @@ def test_direct_generation_complex(N, L):
 
     npt.assert_allclose(get_norm_complex(stat), 1, atol=1e-12)
 
-    am = xyz2nlm.CreateAngularMomentumMatrices(stat.n, exact=False)
+    am = xyz2nlm.create_angular_momentum_matrices(stat.n, exact=False)
     _Lx, _Ly, Lz = am.get_linear_operators()
     Lp, _Lm = am.get_ladder_operators()
     L2 = am.get_casimir()

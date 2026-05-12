@@ -3,11 +3,19 @@ from dataclasses import dataclass
 import mlx_create_c
 import numpy as np
 
+from .qi_algebra import QINumber
 from .qi_interface import exact_zero_array, is_zero, qi, qi_zero, to_complex_array
 
 
 def _sector_size(n):
     return ((n + 1) * (n + 2)) // 2
+
+
+def _values_need_qi_backend(values):
+    values = np.asarray(values)
+    if values.dtype != object:
+        return False
+    return any(isinstance(value, QINumber) for value in values.flat)
 
 
 @dataclass(frozen=True)
@@ -291,8 +299,30 @@ class SphericalHOBasisStateQI(TransientStateQI):
         return self.n, self.l, self.m
 
 
-# Default state names point at the exact containers. The legacy numeric
-# containers are available explicitly as TransientStateNP and
-# SphericalHOBasisStateNP.
-TransientState = TransientStateQI
-SphericalHOBasisState = SphericalHOBasisStateQI
+class TransientStateFactory:
+    def __new__(cls, n, non_zero_ind, non_zero_val):
+        if cls is not TransientStateFactory:
+            return super().__new__(cls)
+
+        implementation = TransientStateQI if _values_need_qi_backend(non_zero_val) else TransientStateNP
+        return implementation(n=n, non_zero_ind=non_zero_ind, non_zero_val=non_zero_val)
+
+    @classmethod
+    def from_ndarray(cls, n, array):
+        implementation = TransientStateQI if np.asarray(array).dtype == object else TransientStateNP
+        return implementation.from_ndarray(n, array)
+
+
+class SphericalHOBasisStateFactory:
+    def __new__(cls, n, l, m, non_zero_ind, non_zero_val):
+        if cls is not SphericalHOBasisStateFactory:
+            return super().__new__(cls)
+
+        implementation = SphericalHOBasisStateQI if _values_need_qi_backend(non_zero_val) else SphericalHOBasisStateNP
+        return implementation(
+            n=n,
+            l=l,
+            m=m,
+            non_zero_ind=non_zero_ind,
+            non_zero_val=non_zero_val,
+        )

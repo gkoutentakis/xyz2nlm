@@ -3,7 +3,7 @@ import numpy.testing as npt
 import pytest
 
 import xyz2nlm
-from xyz2nlm._angular_momentum_basis_tools import EvenAngularMomentumBasis, OddAngularMomentumBasis
+from xyz2nlm.angular_momentum_basis_tools import EvenAngularMomentumBasis, OddAngularMomentumBasis
 from xyz2nlm.qi_interface import exact_inner_product, is_zero, qi, qi_sqrt_int
 
 
@@ -15,15 +15,14 @@ def _basis_index(n):
 
 @pytest.mark.parametrize("size", [0, 1, 2, 3, 4, 5])
 def test_spherical_basis_exact_small_shells(size):
-    shob = xyz2nlm.SphericalHOBasis(size)
-    shob.calculate_states(method="Serial")
+    shob = xyz2nlm.create_spherical_ho_basis(size, method="Serial")
 
     for n in range(size + 1):
         bas = shob.basis_states_views_n[n]
         assert bas.shape == (((n + 1) * (n + 2)) // 2,) * 2
 
         indices = _basis_index(n).index_list
-        am = xyz2nlm.CreateAngularMomentumMatrices(n)
+        am = xyz2nlm.create_angular_momentum_matrices(n, compatible_basis=shob)
         _Lx, _Ly, Lz = am.get_linear_operators()
 
         for i, (_ell, m) in enumerate(indices):
@@ -34,15 +33,14 @@ def test_spherical_basis_exact_small_shells(size):
 
 @pytest.mark.parametrize("size", [0, 1, 2, 3, 4, 5])
 def test_spherical_basis_complex_small_shells(size):
-    shob = xyz2nlm.SphericalHOBasis(size, exact=False)
-    shob.calculate_states(method="Serial")
+    shob = xyz2nlm.create_spherical_ho_basis(size, exact=False, method="Serial")
 
     for n in range(size + 1):
         bas = shob.basis_states_views_n[n]
         assert bas.shape == (((n + 1) * (n + 2)) // 2,) * 2
 
         indices = _basis_index(n).index_list
-        am = xyz2nlm.CreateAngularMomentumMatrices(n, exact=False)
+        am = xyz2nlm.create_angular_momentum_matrices(n, compatible_basis=shob)
         _Lx, _Ly, Lz = am.get_linear_operators()
 
         for i, (_ell, m) in enumerate(indices):
@@ -52,13 +50,12 @@ def test_spherical_basis_complex_small_shells(size):
 
 @pytest.mark.parametrize("size", [0, 1, 2, 3, 4, 5, 20])
 def test_spherical_basis_exact_lowering(size):
-    shob = xyz2nlm.SphericalHOBasis(size)
-    shob.calculate_states(method="Serial")
+    shob = xyz2nlm.create_spherical_ho_basis(size, method="Serial")
 
     for n in range(size + 1):
         bas = shob.basis_states_views_n[n]
         indices = _basis_index(n)
-        am = xyz2nlm.CreateAngularMomentumMatrices(n)
+        am = xyz2nlm.create_angular_momentum_matrices(n)
         _Lp, Lm = am.get_ladder_operators()
 
         for ell, m in indices.index_list:
@@ -75,13 +72,12 @@ def test_spherical_basis_exact_lowering(size):
 # keeps the smaller range here because repeated laddering accumulates roundoff.
 @pytest.mark.parametrize("size", [0, 1, 2, 3, 4, 5])
 def test_spherical_basis_complex_lowering(size):
-    shob = xyz2nlm.SphericalHOBasis(size, exact=False)
-    shob.calculate_states(method="Serial")
+    shob = xyz2nlm.create_spherical_ho_basis(size, exact=False, method="Serial")
 
     for n in range(size + 1):
         bas = shob.basis_states_views_n[n]
         indices = _basis_index(n)
-        am = xyz2nlm.CreateAngularMomentumMatrices(n, exact=False)
+        am = xyz2nlm.create_angular_momentum_matrices(n, exact=False)
         _Lp, Lm = am.get_ladder_operators()
 
         for ell, m in indices.index_list:
@@ -95,11 +91,9 @@ def test_spherical_basis_complex_lowering(size):
 
 @pytest.mark.parametrize("size", [4, 20])
 def test_spherical_basis_complex_compatibility(size):
-    shob_exact = xyz2nlm.SphericalHOBasis(size)
-    shob_exact.calculate_states(method="Serial")
+    shob_exact = xyz2nlm.create_spherical_ho_basis(size, method="Serial")
 
-    shob_np = xyz2nlm.SphericalHOBasis(size, exact=False)
-    shob_np.calculate_states(method="Serial")
+    shob_np = xyz2nlm.create_spherical_ho_basis(size, exact=False, method="Serial")
 
     exact_complex_views = shob_exact.as_complex_basis_states_views_n()
     for n in range(size + 1):
@@ -108,7 +102,7 @@ def test_spherical_basis_complex_compatibility(size):
 
         npt.assert_allclose(exact_complex, np_basis, atol=1e-8, rtol=0, err_msg=f"state {n}")
 
-        am = xyz2nlm.CreateAngularMomentumMatrices(n, exact=False)
+        am = xyz2nlm.create_angular_momentum_matrices(n, exact=False)
         _Lx, _Ly, Lz = am.get_linear_operators()
         L2 = am.get_casimir()
 

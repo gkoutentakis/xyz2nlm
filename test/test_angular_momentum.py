@@ -9,7 +9,7 @@ from xyz2nlm.qi_interface import exact_zero_array, is_zero, qi
 @pytest.mark.parametrize("exact", [True, False])
 @pytest.mark.parametrize("size", [4, 20])
 def test_commutators(size, exact, buffered):
-    am = xyz2nlm.CreateAngularMomentumMatrices(size, exact=exact)
+    am = xyz2nlm.create_angular_momentum_matrices(size, exact=exact)
 
     if buffered:
         operator_buffer_size = am.basis_size
@@ -90,7 +90,7 @@ def assert_exact_zero(array):
 
 @pytest.mark.parametrize("size", [0, 1, 2, 3, 4])
 def test_exact_commutators(size):
-    am = xyz2nlm.CreateAngularMomentumMatrices(size)
+    am = xyz2nlm.create_angular_momentum_matrices(size)
 
     Lx, Ly, Lz = am.get_linear_operators()
     Lp, Lm = am.get_ladder_operators()
@@ -113,7 +113,7 @@ def test_exact_commutators(size):
 @pytest.mark.parametrize("exact", [True, False])
 @pytest.mark.parametrize("size", [4, 20])
 def test_diagonalization(size, exact, buffered):
-    am = xyz2nlm.CreateAngularMomentumMatrices(size, exact=exact)
+    am = xyz2nlm.create_angular_momentum_matrices(size, exact=exact)
 
     if buffered:
         operator_buffer_size = am.basis_size

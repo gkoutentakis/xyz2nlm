@@ -3,7 +3,7 @@ import numpy.testing as npt
 import pytest
 import inspect
 
-import xyz2nlm._angular_momentum_basis_tools as amtools
+import xyz2nlm.angular_momentum_basis_tools as amtools
 
 def _test_AngularMomentumBasis(cls):
     indices = np.arange(cls.Nstates)

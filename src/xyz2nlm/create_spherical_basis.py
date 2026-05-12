@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 import concurrent.futures as cf
 from os import cpu_count
 
@@ -5,14 +6,14 @@ import mlx_create_c
 import numpy as np
 import numpy.testing as npt
 
-from ._angular_momentum_basis_tools import EvenAngularMomentumBasis, OddAngularMomentumBasis
-from .create_angular_momentum_matrices import CreateAngularMomentumMatrices
-from .custom_dataclasses import (
-    SphericalHOBasisStateNP,
-    SphericalHOBasisStateQI,
-    TransientStateNP,
-    TransientStateQI,
+from .angular_momentum_basis_tools import EvenAngularMomentumBasis, OddAngularMomentumBasis
+from .create_angular_momentum_matrices import (
+    AngularMomentumMatricesNP,
+    AngularMomentumMatricesQI,
+    BlockLmApplicationNP,
+    BlockLmApplicationQI,
 )
+from .custom_dataclasses import SphericalHOBasisStateFactory, TransientStateFactory
 from .direct_seed_state_calculation import create_seed_state
 from .qi_interface import (
     exact_zero_array,
@@ -24,117 +25,55 @@ from .qi_interface import (
 )
 
 
-class BlockLmApplication:
-    def __init__(self, n, block_in, ls, ms, exact=True):
-        self.exact = bool(exact)
-        self.am = CreateAngularMomentumMatrices(n, exact=exact)
-        _, self.Lm = self.am.get_ladder_operators(operator_buffer_size=self.am.basis_size)
+class _SphericalHOBasisBase(ABC):
+    """Construct spherical harmonic-oscillator states from Cartesian states."""
 
-        self.work_array_a = block_in
-        self.work_array_b = self.am._Lm_buffer
+    block_application_class = None
 
-        self.states_current = self.work_array_a
-        self.states_current_using_buffer_a = True
-
-        self.block_ls = ls.copy()
-        self.block_ms = ms.copy()
-        self._configure_implementation()
-
-    def _configure_implementation(self):
-        if self.exact:
-            self._normalize_states = self._normalize_states_qi
-        else:
-            self._normalize_states = self._normalize_states_complex
-
-    def decrease_m_of_block(self):
-        self.states_current = self.Lm @ self.states_current
-        self.update_working_buffer_data()
-        self.normalize_states_after_lm_application()
-
-        self.block_ms -= 1
-
-        return self.states_current, self.block_ls, self.block_ms
-
-    def update_working_buffer_data(self):
-        if self.states_current_using_buffer_a:
-            self.am._change_buffer_of_operator("Lm", self.work_array_a)
-            self.states_current_using_buffer_a = False
-        else:
-            self.am._change_buffer_of_operator("Lm", self.work_array_b)
-            self.states_current_using_buffer_a = True
-
-    def normalize_states_after_lm_application(self):
-        self._normalize_states()
-
-    def _normalize_states_complex(self):
-        self.states_current /= np.sqrt(
-            (self.block_ls + self.block_ms) * (self.block_ls - self.block_ms + 1)
-        )[None, :]
-
-    def _normalize_states_qi(self):
-        for column, (ell, emm) in enumerate(zip(self.block_ls, self.block_ms)):
-            normalization = qi_sqrt_int((ell + emm) * (ell - emm + 1))
-            self.states_current[:, column] = [
-                value / normalization for value in self.states_current[:, column]
-            ]
-
-    def drop_first_state_from_block(self):
-        self.states_current = self.states_current[:, 1:]
-        self.block_ls = self.block_ls[1:]
-        self.block_ms = self.block_ms[1:]
-
-
-class SphericalHOBasis:
-    """Construct spherical harmonic-oscillator states from Cartesian states.
-
-    Exact mode is the default. In exact mode coefficients are QINumber algebraic
-    numbers and dense shell blocks use object dtype. Use as_complex_ndarray()
-    helpers or as_complex_basis_states() for explicit numerical inspection.
-    """
-
-    def __init__(self, Nmax, exact=True):
-        self.Nmax = Nmax
-        self.exact = bool(exact)
-        self._configure_implementation()
+    def __init__(self, Nmax):
+        self.Nmax = int(Nmax)
         self._define_lambdas()
         self._set_basis_state_matrices()
         self.initialize_calculation()
 
-    def _configure_implementation(self):
-        if self.exact:
-            self.state_class = SphericalHOBasisStateQI
-            self.transient_state_class = TransientStateQI
-            self._one = qi(1)
-            self._minus_one = qi(-1)
-            self._two_i = qi(2) * qi_i()
-            self._create_seed_state = self._create_seed_state_qi
-            self._initial_even_values = self._initial_even_values_qi
-            self._initial_odd_values = self._initial_odd_values_qi
-            self._new_basis_storage = self._new_basis_storage_qi
-            self._basis_states_to_complex = self._basis_states_to_complex_qi
-            self._basis_state_views_to_complex = self._basis_state_views_to_complex_qi
-            self._s2_weight = self._s2_weight_qi
-            self._r22_parameters = self._r22_parameters_qi
-            self._adag_impl = self._adag_qi
-            return
+    @abstractmethod
+    def _initial_even_values(self):
+        pass
 
-        self.state_class = SphericalHOBasisStateNP
-        self.transient_state_class = TransientStateNP
-        self._one = 1.0
-        self._minus_one = -1
-        self._two_i = 2j
-        self._create_seed_state = self._create_seed_state_complex
-        self._initial_even_values = self._initial_even_values_complex
-        self._initial_odd_values = self._initial_odd_values_complex
-        self._new_basis_storage = self._new_basis_storage_complex
-        self._basis_states_to_complex = self._basis_states_to_complex_complex
-        self._basis_state_views_to_complex = self._basis_state_views_to_complex_complex
-        self._s2_weight = self._s2_weight_complex
-        self._r22_parameters = self._r22_parameters_complex
-        self._adag_impl = self._adag_complex
+    @abstractmethod
+    def _initial_odd_values(self):
+        pass
+
+    @abstractmethod
+    def _create_seed_state(self, n, l):
+        pass
+
+    @abstractmethod
+    def _new_basis_storage(self, size):
+        pass
+
+    @abstractmethod
+    def as_complex_basis_states(self):
+        pass
+
+    @abstractmethod
+    def as_complex_basis_states_views_n(self):
+        pass
+
+    @abstractmethod
+    def _s2_weight(self, n, l):
+        pass
+
+    @abstractmethod
+    def _r22_parameters(self, n, l):
+        pass
+
+    @abstractmethod
+    def _adag(self, state, ind):
+        pass
 
     def _initial_state_even_sector(self):
-        return self.state_class(
+        return SphericalHOBasisStateFactory(
             n=0,
             l=0,
             m=0,
@@ -142,27 +81,14 @@ class SphericalHOBasis:
             non_zero_val=self._initial_even_values(),
         )
 
-    def _initial_even_values_qi(self):
-        return np.asarray([self._one], dtype=object)
-
-    def _initial_even_values_complex(self):
-        return np.asarray([self._one])
-
     def _initial_state_odd_sector(self):
-        return self.state_class(
+        return SphericalHOBasisStateFactory(
             n=1,
             l=1,
             m=1,
             non_zero_ind=np.array([0, 1]),
             non_zero_val=self._initial_odd_values(),
         )
-
-    def _initial_odd_values_qi(self):
-        root_two = qi_sqrt_int(2)
-        return np.asarray([-self._one / root_two, -qi_i() / root_two], dtype=object)
-
-    def _initial_odd_values_complex(self):
-        return np.array([-1.0 / np.sqrt(2), -1j / np.sqrt(2)])
 
     def initialize_calculation(self):
         self.seed_states = {}
@@ -253,12 +179,6 @@ class SphericalHOBasis:
     def job_make_seed_state(self, n, l):
         return self._create_seed_state(n, l)
 
-    def _create_seed_state_qi(self, n, l):
-        return create_seed_state(n, l, exact=True)
-
-    def _create_seed_state_complex(self, n, l):
-        return create_seed_state(n, l, exact=False)
-
     def record_seed_state(self, seed_state):
         n, l, m = seed_state.get_indices()
 
@@ -329,36 +249,8 @@ class SphericalHOBasis:
             for i in range(self.Nmax + 1)
         ]
 
-    def as_complex_basis_states(self):
-        return self._basis_states_to_complex()
-
-    def as_complex_basis_states_views_n(self):
-        return self._basis_state_views_to_complex()
-
-    def _new_basis_storage_qi(self, size):
-        return exact_zero_array((size,))
-
-    def _new_basis_storage_complex(self, size):
-        return np.zeros((size,), dtype=complex)
-
-    def _basis_states_to_complex_qi(self):
-        return to_complex_array(self.basis_states)
-
-    def _basis_states_to_complex_complex(self):
-        return self.basis_states
-
-    def _basis_state_views_to_complex_qi(self):
-        return [to_complex_array(view) for view in self.basis_states_views_n]
-
-    def _basis_state_views_to_complex_complex(self):
-        return self.basis_states_views_n
-
     def s2_operator(self, state_in):
         n, l, m = state_in.get_indices()
-
-        n_out = n + 2
-        l_out = l
-        m_out = m
 
         termx = self._axdag_sq(state_in)
         termy = self._aydag_sq(state_in)
@@ -366,25 +258,16 @@ class SphericalHOBasis:
 
         total_state = (termx + termy + termz).scale(self._s2_weight(n, l))
 
-        return self.state_class(
-            n=n_out,
-            l=l_out,
-            m=m_out,
+        return SphericalHOBasisStateFactory(
+            n=n + 2,
+            l=l,
+            m=m,
             non_zero_ind=total_state.non_zero_ind,
             non_zero_val=total_state.non_zero_val,
         )
 
-    def _s2_weight_qi(self, n, l):
-        return self._one / qi_sqrt_int((n - l + 2) * (n + l + 3))
-
-    def _s2_weight_complex(self, n, l):
-        return ((n - l + 2) * (n + l + 3)) ** (-0.5)
-
     def r22_operator(self, state_in):
         n, l, m = state_in.get_indices()
-        n_out = n + 2
-        l_out = l + 2
-        m_out = m + 2
 
         overall_weight, minus_one, two_i = self._r22_parameters(n, l)
 
@@ -394,24 +277,13 @@ class SphericalHOBasis:
 
         total_state = (termx + termy + termxy).scale(overall_weight)
 
-        return self.state_class(
-            n=n_out,
-            l=l_out,
-            m=m_out,
+        return SphericalHOBasisStateFactory(
+            n=n + 2,
+            l=l + 2,
+            m=m + 2,
             non_zero_ind=total_state.non_zero_ind,
             non_zero_val=total_state.non_zero_val,
         )
-
-    def _r22_parameters_qi(self, n, l):
-        numerator = (2 * l + 3) * (2 * l + 5)
-        denominator = 4 * (l + 1) * (l + 2) * (n + l + 3) * (n + l + 5)
-        return qi_sqrt_fraction(numerator, denominator), self._minus_one, self._two_i
-
-    def _r22_parameters_complex(self, n, l):
-        overall_weight = 0.5 * np.sqrt(
-            (2 * l + 3) * (2 * l + 5) / ((l + 1) * (l + 2) * (n + l + 3) * (n + l + 5))
-        )
-        return overall_weight, self._minus_one, self._two_i
 
     def complete_fixed_n_block_from_seed_states(self, seed_states):
         n, block_in = self.pack_list_spherical_basis_states(seed_states)
@@ -433,7 +305,7 @@ class SphericalHOBasis:
         block_out_view[:, ind.jm2index(ls, ls)] = block_in
         view_pos = id(block_out_view)
 
-        block_controller = BlockLmApplication(n, block_in, ls, ls, exact=self.exact)
+        block_controller = self.block_application_class(n, block_in, ls, ls)
         for first_l_in_block in ls:
             for _ in range(4 if first_l_in_block != 1 else 2):
                 states_current, ls_c, ms_c = block_controller.decrease_m_of_block()
@@ -441,33 +313,6 @@ class SphericalHOBasis:
                 assert id(block_out_view) == view_pos
 
             block_controller.drop_first_state_from_block()
-
-    def _adag(self, state, ind):
-        return self._adag_impl(state, ind)
-
-    def _adag_complex(self, state, ind):
-        indices, weight = mlx_create_c.creation_operator(state.non_zero_ind, ind, state.n, 3)
-        return self.transient_state_class(
-            n=state.n + 1,
-            non_zero_ind=indices,
-            non_zero_val=state.non_zero_val * weight,
-        )
-
-    def _adag_qi(self, state, ind):
-        indices, _weight = mlx_create_c.creation_operator(state.non_zero_ind, ind, state.n, 3)
-        ns = mlx_create_c.create_bos_ns(state.n, 3)
-        exact_weight = np.asarray(
-            [qi_sqrt_int(ns[index, ind] + 1) for index in state.non_zero_ind],
-            dtype=object,
-        )
-        return self.transient_state_class(
-            n=state.n + 1,
-            non_zero_ind=indices,
-            non_zero_val=np.asarray(
-                [value * coeff for value, coeff in zip(state.non_zero_val, exact_weight)],
-                dtype=object,
-            ),
-        )
 
     def _define_lambdas(self):
         self._axdag = lambda state: self._adag(state, 0)
@@ -479,9 +324,107 @@ class SphericalHOBasis:
         self._azdag_sq = lambda state: self._azdag(self._azdag(state))
 
 
-class SphericalHOBasisNP(SphericalHOBasis):
+class SphericalHOBasisQI(_SphericalHOBasisBase):
+    block_application_class = BlockLmApplicationQI
+
     def __init__(self, Nmax):
-        super().__init__(Nmax, exact=False)
+        self._one = qi(1)
+        self._minus_one = qi(-1)
+        self._two_i = qi(2) * qi_i()
+        super().__init__(Nmax)
+
+    def _initial_even_values(self):
+        return np.asarray([self._one], dtype=object)
+
+    def _initial_odd_values(self):
+        root_two = qi_sqrt_int(2)
+        return np.asarray([-self._one / root_two, -qi_i() / root_two], dtype=object)
+
+    def _create_seed_state(self, n, l):
+        return create_seed_state(n, l, exact=True)
+
+    def _new_basis_storage(self, size):
+        return exact_zero_array((size,))
+
+    def as_complex_basis_states(self):
+        return to_complex_array(self.basis_states)
+
+    def as_complex_basis_states_views_n(self):
+        return [to_complex_array(view) for view in self.basis_states_views_n]
+
+    def _s2_weight(self, n, l):
+        return self._one / qi_sqrt_int((n - l + 2) * (n + l + 3))
+
+    def _r22_parameters(self, n, l):
+        numerator = (2 * l + 3) * (2 * l + 5)
+        denominator = 4 * (l + 1) * (l + 2) * (n + l + 3) * (n + l + 5)
+        return qi_sqrt_fraction(numerator, denominator), self._minus_one, self._two_i
+
+    def _adag(self, state, ind):
+        indices, _weight = mlx_create_c.creation_operator(state.non_zero_ind, ind, state.n, 3)
+        ns = mlx_create_c.create_bos_ns(state.n, 3)
+        exact_weight = np.asarray(
+            [qi_sqrt_int(ns[index, ind] + 1) for index in state.non_zero_ind],
+            dtype=object,
+        )
+        return TransientStateFactory(
+            n=state.n + 1,
+            non_zero_ind=indices,
+            non_zero_val=np.asarray(
+                [value * coeff for value, coeff in zip(state.non_zero_val, exact_weight)],
+                dtype=object,
+            ),
+        )
 
 
-SphericalHOBasisState = SphericalHOBasisStateQI
+class SphericalHOBasisNP(_SphericalHOBasisBase):
+    block_application_class = BlockLmApplicationNP
+
+    def __init__(self, Nmax):
+        self._one = 1.0
+        self._minus_one = -1
+        self._two_i = 2j
+        super().__init__(Nmax)
+
+    def _initial_even_values(self):
+        return np.asarray([self._one])
+
+    def _initial_odd_values(self):
+        return np.array([-1.0 / np.sqrt(2), -1j / np.sqrt(2)])
+
+    def _create_seed_state(self, n, l):
+        return create_seed_state(n, l, exact=False)
+
+    def _new_basis_storage(self, size):
+        return np.zeros((size,), dtype=complex)
+
+    def as_complex_basis_states(self):
+        return self.basis_states
+
+    def as_complex_basis_states_views_n(self):
+        return self.basis_states_views_n
+
+    def _s2_weight(self, n, l):
+        return ((n - l + 2) * (n + l + 3)) ** (-0.5)
+
+    def _r22_parameters(self, n, l):
+        overall_weight = 0.5 * np.sqrt(
+            (2 * l + 3) * (2 * l + 5) / ((l + 1) * (l + 2) * (n + l + 3) * (n + l + 5))
+        )
+        return overall_weight, self._minus_one, self._two_i
+
+    def _adag(self, state, ind):
+        indices, weight = mlx_create_c.creation_operator(state.non_zero_ind, ind, state.n, 3)
+        return TransientStateFactory(
+            n=state.n + 1,
+            non_zero_ind=indices,
+            non_zero_val=state.non_zero_val * weight,
+        )
+
+
+def create_spherical_ho_basis(Nmax, exact=True, calculate=True, method="Threads"):
+    implementation = SphericalHOBasisQI if exact else SphericalHOBasisNP
+    spherical_ho_basis_object = implementation(Nmax)
+    if calculate:
+        spherical_ho_basis_object.calculate_states(method)
+    return spherical_ho_basis_object
