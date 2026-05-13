@@ -217,7 +217,7 @@ class _SphericalHOBasisBase(ABC):
     def calculation_done(self):
         return np.sum(self.pending_blocks_checklist) == 0
 
-    def pack_list_spherical_basis_states(self, states):
+    def _ordered_spherical_basis_states(self, states):
         indices = np.array([list(state.get_indices()) for state in states])
 
         n = indices[0, 0]
@@ -228,9 +228,15 @@ class _SphericalHOBasisBase(ABC):
 
         order = np.argsort(indices[:, 1])
         assert indices[order[-1], 1] == n
+        return n, [states[index] for index in order]
 
+    def pack_list_spherical_basis_states(self, states):
+        n, ordered_states = self._ordered_spherical_basis_states(states)
+        return n, self._pack_ordered_spherical_basis_states(ordered_states)
+
+    def _pack_ordered_spherical_basis_states(self, states):
         out = np.column_stack([state.as_ndarray() for state in states])
-        return n, out[:, order]
+        return out
 
     def _set_basis_state_matrices(self):
         elements_sector_n = lambda n: ((n + 1) * (n + 2)) // 2
@@ -286,7 +292,8 @@ class _SphericalHOBasisBase(ABC):
         )
 
     def complete_fixed_n_block_from_seed_states(self, seed_states):
-        n, block_in = self.pack_list_spherical_basis_states(seed_states)
+        n, ordered_seed_states = self._ordered_spherical_basis_states(seed_states)
+        block_in = self._pack_ordered_spherical_basis_states(ordered_seed_states)
         if n == 0:
             self.basis_states_views_n[0][0] = self._one
             return
@@ -297,6 +304,7 @@ class _SphericalHOBasisBase(ABC):
             ind = EvenAngularMomentumBasis(n)
             block_out_view[:, ind.jm2index(0, 0)] = block_in[:, 0]
             block_in = block_in[:, 1:]
+            ordered_seed_states = ordered_seed_states[1:]
             ls = np.arange(2, n + 1, 2)
         else:
             ind = OddAngularMomentumBasis(n)
@@ -305,7 +313,13 @@ class _SphericalHOBasisBase(ABC):
         block_out_view[:, ind.jm2index(ls, ls)] = block_in
         view_pos = id(block_out_view)
 
-        block_controller = self.block_application_class(n, block_in, ls, ls)
+        block_controller = self.block_application_class(
+            n,
+            block_in,
+            ls,
+            ls,
+            seed_states=ordered_seed_states,
+        )
         for first_l_in_block in ls:
             for _ in range(4 if first_l_in_block != 1 else 2):
                 states_current, ls_c, ms_c = block_controller.decrease_m_of_block()

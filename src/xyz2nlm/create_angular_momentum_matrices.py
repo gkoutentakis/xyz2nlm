@@ -4,7 +4,7 @@ import numpy as np
 import mlx_create_c
 from scipy.sparse.linalg import LinearOperator
 
-from .qi_interface import exact_zero_array, qi, qi_i, qi_sqrt_int, qi_zero, to_complex
+from .qi_interface import exact_zero_array, is_zero, qi, qi_i, qi_sqrt_int, qi_zero, to_complex
 
 
 class ExactAngularMomentumOperator:
@@ -15,6 +15,7 @@ class ExactAngularMomentumOperator:
         self.name = name
         self.owner = owner
         self.buffer = None
+        self._adjacency_by_rhs = None
         if operator_buffer_size is not None:
             self.change_buffer(exact_zero_array((basis_size, operator_buffer_size)))
 
@@ -22,6 +23,41 @@ class ExactAngularMomentumOperator:
         self.buffer = new_buffer
         if self.owner is not None:
             setattr(self.owner, f"_{self.name}_buffer", new_buffer)
+
+    def adjacency_by_rhs(self):
+        if self._adjacency_by_rhs is not None:
+            return self._adjacency_by_rhs
+
+        adjacency = [[] for _ in range(self.basis_size)]
+        for lhs_map, rhs_map, coefficients, _numeric_coefficients in self.maps:
+            for lhs, rhs, coefficient in zip(lhs_map, rhs_map, coefficients):
+                if not is_zero(coefficient):
+                    adjacency[int(rhs)].append((int(lhs), coefficient))
+
+        self._adjacency_by_rhs = tuple(tuple(entries) for entries in adjacency)
+        return self._adjacency_by_rhs
+
+    def apply_sparse_columns(self, sparse_columns):
+        adjacency = self.adjacency_by_rhs()
+        output_columns = []
+
+        for column in sparse_columns:
+            output = {}
+            for rhs, value in column.items():
+                for lhs, coefficient in adjacency[rhs]:
+                    contribution = coefficient * value
+                    if is_zero(contribution):
+                        continue
+
+                    updated_value = output.get(lhs, qi_zero()) + contribution
+                    if is_zero(updated_value):
+                        output.pop(lhs, None)
+                    else:
+                        output[lhs] = updated_value
+
+            output_columns.append(output)
+
+        return output_columns
 
     def _clean_exact_output(self, psi):
         if self.buffer is None:
@@ -376,7 +412,7 @@ class AngularMomentumMatricesNP(_AngularMomentumMatricesBase):
 class _BlockLmApplicationBase(ABC):
     angular_momentum_class = None
 
-    def __init__(self, n, block_in, ls, ms):
+    def __init__(self, n, block_in, ls, ms, seed_states=None):
         self.am = self.angular_momentum_class(n)
         _, self.Lm = self.am.get_ladder_operators(operator_buffer_size=self.am.basis_size)
 
@@ -419,12 +455,73 @@ class _BlockLmApplicationBase(ABC):
 class BlockLmApplicationQI(_BlockLmApplicationBase):
     angular_momentum_class = AngularMomentumMatricesQI
 
-    def normalize_states_after_lm_application(self):
-        for column, (ell, emm) in enumerate(zip(self.block_ls, self.block_ms)):
-            normalization = qi_sqrt_int((ell + emm) * (ell - emm + 1))
-            self.states_current[:, column] = [
-                value / normalization for value in self.states_current[:, column]
+    def __init__(self, n, block_in, ls, ms, seed_states=None):
+        self.am = self.angular_momentum_class(n)
+        _, self.Lm = self.am.get_ladder_operators()
+
+        self.work_array_a = block_in
+        self.work_array_b = None
+        self.states_current = self.work_array_a
+        self.states_current_using_buffer_a = True
+
+        self.block_ls = ls.copy()
+        self.block_ms = ms.copy()
+        self.sparse_columns = self._initial_sparse_columns(block_in, seed_states)
+
+    def _initial_sparse_columns(self, block_in, seed_states):
+        if seed_states is not None:
+            return [
+                {
+                    int(index): value
+                    for index, value in zip(state.non_zero_ind, state.non_zero_val)
+                    if not is_zero(value)
+                }
+                for state in seed_states
             ]
+
+        return self._sparse_columns_from_dense(block_in)
+
+    def _sparse_columns_from_dense(self, block_in):
+        block_in = np.asarray(block_in, dtype=object)
+        sparse_columns = []
+        for column in range(block_in.shape[1]):
+            sparse_column = {}
+            for row, value in enumerate(block_in[:, column]):
+                if not is_zero(value):
+                    sparse_column[row] = value
+            sparse_columns.append(sparse_column)
+        return sparse_columns
+
+    def decrease_m_of_block(self):
+        self.sparse_columns = self.Lm.apply_sparse_columns(self.sparse_columns)
+        self.normalize_states_after_lm_application()
+        self.block_ms -= 1
+        self.states_current = self._materialize_sparse_columns()
+        return self.states_current, self.block_ls, self.block_ms
+
+    def normalize_states_after_lm_application(self):
+        for column_index, (ell, emm) in enumerate(zip(self.block_ls, self.block_ms)):
+            normalization = qi_sqrt_int((ell + emm) * (ell - emm + 1))
+            normalized_column = {}
+            for index, value in self.sparse_columns[column_index].items():
+                normalized_value = value / normalization
+                if not is_zero(normalized_value):
+                    normalized_column[index] = normalized_value
+
+            self.sparse_columns[column_index] = normalized_column
+
+    def _materialize_sparse_columns(self):
+        out = exact_zero_array((self.am.basis_size, len(self.sparse_columns)))
+        for column_index, sparse_column in enumerate(self.sparse_columns):
+            for row, value in sparse_column.items():
+                out[row, column_index] = value
+        return out
+
+    def drop_first_state_from_block(self):
+        self.sparse_columns = self.sparse_columns[1:]
+        self.states_current = self._materialize_sparse_columns()
+        self.block_ls = self.block_ls[1:]
+        self.block_ms = self.block_ms[1:]
 
 
 class BlockLmApplicationNP(_BlockLmApplicationBase):
